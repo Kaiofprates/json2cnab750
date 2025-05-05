@@ -1,0 +1,39 @@
+{
+    "header": {
+        "codigo_registro": "0",
+        "codigo_remessa": "1",
+        "literal_remessa": "REMESSA",
+        "codigo_servico": "01",
+        "literal_servico": "COBRANCA",
+        "codigo_empresa": "12345678901234567890",
+        "nome_empresa": "EMPRESA TESTE LTDA",
+        "numero_banco": "341",
+        "nome_banco": "BANCO ITAU SA",
+        "data_geracao": "2024-03-19",
+        "densidade_gravacao": "01600",
+        "literal_densidade": "BPI",
+        "numero_sequencial": "0000001"
+    },
+    "transacoes": [
+        {
+            "codigo_registro": "1",
+            "tipo_inscricao": "02",
+            "numero_inscricao": "12345678901234",
+            "identificacao_empresa": "12345678901234",
+            "nosso_numero": "12345678",
+            "data_vencimento": "2024-04-19",
+            "valor_titulo": 1000.50,
+            "especie_titulo": "01",
+            "identificacao_titulo": "FAT123456",
+            "nome_pagador": "CLIENTE TESTE",
+            "endereco_pagador": "RUA TESTE, 123 - CENTRO",
+            "chave_pix": "cliente@email.com"
+        }
+    ],
+    "trailer": {
+        "codigo_registro": "9",
+        "quantidade_registros": 1,
+        "valor_total": 1000.50,
+        "numero_sequencial": "0000002"
+    }
+} 
