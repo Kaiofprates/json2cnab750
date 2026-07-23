@@ -1,11 +1,17 @@
+from io import BytesIO
 from typing import Any, Dict
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from ..schemas.cnab750 import ArquivoRemessa, CriarArquivoPadraoRequest
 from ..services.cnab750_service import CNAB750Service
+from ..services.excel_service import RetornoExcelService
 from ..services.retorno_service import RetornoService
+
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 router = APIRouter()
 
@@ -50,6 +56,32 @@ async def converter_retorno_para_json(
         return arquivo_retorno.model_dump(mode="json")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/retorno-to-excel")
+async def converter_retorno_para_excel(
+    arquivo: UploadFile = File(...),
+):
+    """Lê um arquivo de RETORNO CNAB750 e devolve uma planilha Excel (.xlsx).
+
+    A planilha traz a análise dos recebimentos com sumarização de receita
+    (resumo consolidado, detalhe, receita por dia e por chave Pix).
+    """
+    try:
+        conteudo = await arquivo.read()
+        conteudo_str = conteudo.decode("utf-8")
+        arquivo_retorno = RetornoService.retorno_to_json(conteudo_str)
+        planilha = RetornoExcelService.gerar_excel(arquivo_retorno)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    nome_saida = (arquivo.filename or "retorno").rsplit(".", 1)[0]
+    headers = {
+        "Content-Disposition": f'attachment; filename="analise_{nome_saida}.xlsx"'
+    }
+    return StreamingResponse(
+        BytesIO(planilha), media_type=XLSX_MEDIA_TYPE, headers=headers
+    )
 
 
 @router.post("/criar-arquivo-padrao")

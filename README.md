@@ -10,6 +10,7 @@ com exatamente **750 bytes**.
 - Conversão de JSON para CNAB750 remessa (`/json-to-cnab750`)
 - Conversão de CNAB750 remessa para JSON (`/cnab750-to-json`)
 - Leitura de arquivo de RETORNO CNAB750, com cada registro convertido em JSON (`/retorno-to-json`)
+- Análise de RETORNO em Excel (.xlsx) com sumarização de receita (`/retorno-to-excel`)
 - Criação de arquivo CNAB750 padrão sem transações (`/criar-arquivo-padrao`)
 - Geração automática do trailer (quantidade de registros e valor total) e dos
   números sequenciais de registro
@@ -76,6 +77,23 @@ Recebe um arquivo de **retorno** CNAB750 (`multipart/form-data`, campo
 A resposta tem a forma `{ "header": {...}, "detalhes": [...], "trailer": {...} }`,
 em que cada item de `detalhes` traz o campo `tipo_registro` identificando o seu
 tipo. Aceita registros separados por quebra de linha ou em blocos fixos de 750.
+
+#### POST /api/v1/retorno-to-excel
+
+Recebe um arquivo de **retorno** CNAB750 (`multipart/form-data`, campo
+`arquivo`) e devolve uma planilha **Excel (`.xlsx`)** com a análise dos
+recebimentos (registros tipo `5`) e sumarização de receita. A planilha tem
+quatro abas:
+
+| Aba | Conteúdo |
+|-----|----------|
+| `Resumo` | Indicadores consolidados: qtde. de recebimentos, valor original, juros, multa, descontos, abatimentos, **receita bruta** (valor pago), tarifas, **receita líquida** e ticket médio |
+| `Recebimentos` | Uma linha por recebimento (detalhe) |
+| `Receita por Dia` | Sumarização por data de movimento |
+| `Receita por Chave` | Sumarização por chave Pix do recebedor |
+
+Todos os totais são gravados como **fórmulas** (`SUM`, `SUMIFS`, `COUNTIFS`),
+de modo que a planilha recalcula automaticamente ao ser editada.
 
 #### POST /api/v1/criar-arquivo-padrao
 
