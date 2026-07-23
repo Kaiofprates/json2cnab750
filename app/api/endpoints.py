@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from ..schemas.cnab750 import ArquivoRemessa, CriarArquivoPadraoRequest
 from ..services.cnab750_service import CNAB750Service
+from ..services.retorno_service import RetornoService
 
 router = APIRouter()
 
@@ -28,6 +29,25 @@ async def converter_cnab750_para_json(
         conteudo_str = conteudo.decode("utf-8")
         arquivo_remessa = CNAB750Service.cnab750_to_json(conteudo_str)
         return arquivo_remessa.model_dump(mode="json")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/retorno-to-json")
+async def converter_retorno_para_json(
+    arquivo: UploadFile = File(...),
+) -> Dict[str, Any]:
+    """Lê um arquivo de RETORNO CNAB750 e converte cada registro em JSON.
+
+    Suporta os registros de detalhe de retorno (tipos 1, 2, 4 e 5) além do
+    header (0) e trailer (9). Cada detalhe traz o campo ``tipo_registro``
+    identificando o seu tipo.
+    """
+    try:
+        conteudo = await arquivo.read()
+        conteudo_str = conteudo.decode("utf-8")
+        arquivo_retorno = RetornoService.retorno_to_json(conteudo_str)
+        return arquivo_retorno.model_dump(mode="json")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

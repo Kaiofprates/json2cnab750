@@ -7,8 +7,9 @@ com exatamente **750 bytes**.
 
 ## Funcionalidades
 
-- Conversão de JSON para CNAB750 (`/json-to-cnab750`)
-- Conversão de CNAB750 para JSON (`/cnab750-to-json`)
+- Conversão de JSON para CNAB750 remessa (`/json-to-cnab750`)
+- Conversão de CNAB750 remessa para JSON (`/cnab750-to-json`)
+- Leitura de arquivo de RETORNO CNAB750, com cada registro convertido em JSON (`/retorno-to-json`)
 - Criação de arquivo CNAB750 padrão sem transações (`/criar-arquivo-padrao`)
 - Geração automática do trailer (quantidade de registros e valor total) e dos
   números sequenciais de registro
@@ -56,6 +57,25 @@ seja, não precisam ser enviados.
 Recebe um arquivo CNAB750 (`multipart/form-data`, campo `arquivo`) e devolve o
 JSON correspondente. Aceita registros separados por quebra de linha
 (`\r\n`/`\n`) ou concatenados em blocos fixos de 750 posições.
+
+#### POST /api/v1/retorno-to-json
+
+Recebe um arquivo de **retorno** CNAB750 (`multipart/form-data`, campo
+`arquivo`) e devolve o JSON com cada registro convertido. O arquivo de retorno
+é heterogêneo e a rota reconhece todos os tipos de registro do leiaute:
+
+| Tipo | Registro |
+|------|----------|
+| `0`  | Header |
+| `1`  | Retorno de emissão, alteração e cancelamento |
+| `2`  | Informações adicionais (recebimento) |
+| `4`  | Geração do QR Code / EMV (emissão) |
+| `5`  | Recebimento |
+| `9`  | Trailer |
+
+A resposta tem a forma `{ "header": {...}, "detalhes": [...], "trailer": {...} }`,
+em que cada item de `detalhes` traz o campo `tipo_registro` identificando o seu
+tipo. Aceita registros separados por quebra de linha ou em blocos fixos de 750.
 
 #### POST /api/v1/criar-arquivo-padrao
 
