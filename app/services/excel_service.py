@@ -20,7 +20,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from ..schemas.retorno import ArquivoRetorno, RetornoRecebimento
+from ..schemas.retorno import (
+    ArquivoRetorno,
+    ResumoGrupo,
+    ResumoRetorno,
+    RetornoRecebimento,
+)
 
 FONTE = "Arial"
 MOEDA = '"R$" #,##0.00'
@@ -36,6 +41,27 @@ _COL_DATA = "B"
 _COL_CHAVE = "C"
 _COL_VALOR_PAGO = "L"
 _COL_TARIFA = "M"
+
+# Definição única das colunas da aba Recebimentos: (título, largura, formato).
+# Usada tanto pela geração em memória quanto pela geração em streaming.
+_COLUNAS_RECEBIMENTOS = [
+    ("Identificador (TxId)", 22, None),
+    ("Data Movimento", 15, None),
+    ("Chave Pix", 26, None),
+    ("Pagador Final", 30, None),
+    ("CPF/CNPJ Pagador", 18, None),
+    ("Valor Original", 15, MOEDA),
+    ("Juros", 12, MOEDA),
+    ("Multa", 12, MOEDA),
+    ("Desconto", 12, MOEDA),
+    ("Abatimento", 12, MOEDA),
+    ("Valor Final", 15, MOEDA),
+    ("Valor Pago", 15, MOEDA),
+    ("Tarifa", 12, MOEDA),
+    ("Receita Líquida", 15, MOEDA),
+    ("End To End Id", 34, None),
+    ("Cód. Liquidação", 14, None),
+]
 
 
 def _num(valor: Optional[Decimal]) -> float:
@@ -72,30 +98,15 @@ class RetornoExcelService:
         ws = wb.active
         ws.title = "Recebimentos"
 
-        colunas = [
-            ("Identificador (TxId)", 22, None),
-            ("Data Movimento", 15, None),
-            ("Chave Pix", 26, None),
-            ("Pagador Final", 30, None),
-            ("CPF/CNPJ Pagador", 18, None),
-            ("Valor Original", 15, MOEDA),
-            ("Juros", 12, MOEDA),
-            ("Multa", 12, MOEDA),
-            ("Desconto", 12, MOEDA),
-            ("Abatimento", 12, MOEDA),
-            ("Valor Final", 15, MOEDA),
-            ("Valor Pago", 15, MOEDA),
-            ("Tarifa", 12, MOEDA),
-            ("Receita Líquida", 15, MOEDA),
-            ("End To End Id", 34, None),
-            ("Cód. Liquidação", 14, None),
-        ]
+        colunas = _COLUNAS_RECEBIMENTOS
         for idx, (titulo, largura, _) in enumerate(colunas, start=1):
             letra = get_column_letter(idx)
             cel = ws.cell(row=1, column=idx, value=titulo)
             cel.font = _BRANCO
             cel.fill = _HEADER_FILL
-            cel.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cel.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True
+            )
             ws.column_dimensions[letra].width = largura
 
         for i, r in enumerate(recebimentos, start=2):
@@ -128,7 +139,9 @@ class RetornoExcelService:
             ws.cell(row=i, column=14).number_format = MOEDA
 
         ws.freeze_panes = "A2"
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(colunas))}{max(1, len(recebimentos) + 1)}"
+        ws.auto_filter.ref = (
+            f"A1:{get_column_letter(len(colunas))}{max(1, len(recebimentos) + 1)}"
+        )
 
     # ------------------------------------------------------------------ #
     # Aba: Resumo                                                         #
@@ -165,14 +178,18 @@ class RetornoExcelService:
             ("Recebedor", arquivo.header.nome_recebedor or "-"),
             (
                 "Data de geração",
-                arquivo.header.data_geracao.isoformat()
-                if arquivo.header.data_geracao
-                else "-",
+                (
+                    arquivo.header.data_geracao.isoformat()
+                    if arquivo.header.data_geracao
+                    else "-"
+                ),
             ),
         ]
         linha = 3
         for rotulo, valor in info:
-            ws.cell(row=linha, column=1, value=rotulo).font = Font(name=FONTE, bold=True)
+            ws.cell(row=linha, column=1, value=rotulo).font = Font(
+                name=FONTE, bold=True
+            )
             ws.cell(row=linha, column=2, value=valor).font = Font(name=FONTE)
             linha += 1
 
@@ -309,9 +326,166 @@ class RetornoExcelService:
 
         # Linha de total
         if chaves:
-            ws.cell(row=linha, column=1, value="TOTAL").font = Font(name=FONTE, bold=True)
+            ws.cell(row=linha, column=1, value="TOTAL").font = Font(
+                name=FONTE, bold=True
+            )
             for col, letra in ((2, "B"), (3, "C"), (4, "D"), (5, "E")):
-                cel = ws.cell(row=linha, column=col, value=f"=SUM({letra}2:{letra}{linha - 1})")
+                cel = ws.cell(
+                    row=linha, column=col, value=f"=SUM({letra}2:{letra}{linha - 1})"
+                )
+                cel.font = Font(name=FONTE, bold=True)
+                cel.fill = _TOTAL_FILL
+                if col >= 3:
+                    cel.number_format = MOEDA
+            ws.cell(row=linha, column=2).number_format = "0"
+
+        ws.freeze_panes = "A2"
+
+    # ------------------------------------------------------------------ #
+    # Geração AGREGADA a partir de resumo em streaming (escala p/ 1 GB+)   #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def gerar_excel_resumo(resumo: "ResumoRetorno") -> bytes:
+        """Gera a planilha de análise a partir de um ``ResumoRetorno``.
+
+        Diferente de :meth:`gerar_excel`, **não** inclui a aba de detalhe
+        (uma linha por recebimento) — apenas os indicadores consolidados e as
+        sumarizações por dia e por chave Pix. Como o resumo é calculado em
+        *streaming* e tem tamanho limitado (independe da quantidade de
+        registros), esta geração é rápida e leve mesmo para arquivos enormes,
+        para os quais a aba de detalhe seria inviável (o Excel tem limite de
+        ~1.048.576 linhas por aba).
+        """
+        wb = Workbook()
+        RetornoExcelService._resumo_agregado(wb, resumo)
+        RetornoExcelService._sumarizada_agregada(
+            wb, "Receita por Dia", "Data Movimento", 16, resumo.por_dia
+        )
+        RetornoExcelService._sumarizada_agregada(
+            wb, "Receita por Chave", "Chave Pix", 30, resumo.por_chave
+        )
+        wb.active = 0
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        return buffer.getvalue()
+
+    @staticmethod
+    def _resumo_agregado(wb: Workbook, resumo: "ResumoRetorno") -> None:
+        ws = wb.active
+        ws.title = "Resumo"
+        ws.sheet_view.showGridLines = False
+        ws.column_dimensions["A"].width = 34
+        ws.column_dimensions["B"].width = 20
+
+        ws.merge_cells("A1:B1")
+        titulo = ws["A1"]
+        titulo.value = "Análise de Retorno CNAB750 — Receita"
+        titulo.font = Font(name=FONTE, bold=True, size=14, color="FFFFFF")
+        titulo.fill = _TITULO_FILL
+        titulo.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[1].height = 26
+
+        info = [
+            ("ISPB do recebedor", resumo.ispb_participante or "-"),
+            ("Recebedor", resumo.nome_recebedor or "-"),
+            (
+                "Data de geração",
+                resumo.data_geracao.isoformat() if resumo.data_geracao else "-",
+            ),
+        ]
+        linha = 3
+        for rotulo, valor in info:
+            ws.cell(row=linha, column=1, value=rotulo).font = Font(
+                name=FONTE, bold=True
+            )
+            ws.cell(row=linha, column=2, value=valor).font = Font(name=FONTE)
+            linha += 1
+
+        linha += 1
+        cab = ws.cell(row=linha, column=1, value="Indicador")
+        cab.font = _BRANCO
+        cab.fill = _HEADER_FILL
+        cabv = ws.cell(row=linha, column=2, value="Valor")
+        cabv.font = _BRANCO
+        cabv.fill = _HEADER_FILL
+        cabv.alignment = Alignment(horizontal="right")
+        linha += 1
+
+        indicadores = [
+            ("Qtde. de recebimentos", resumo.quantidade, "0"),
+            ("Valor original total", _num(resumo.valor_original), MOEDA),
+            ("Juros recebidos", _num(resumo.valor_juros), MOEDA),
+            ("Multa recebida", _num(resumo.valor_multa), MOEDA),
+            ("Descontos concedidos", _num(resumo.valor_desconto), MOEDA),
+            ("Abatimentos concedidos", _num(resumo.valor_abatimento), MOEDA),
+            ("Receita bruta (valor pago)", _num(resumo.receita_bruta), MOEDA),
+            ("Tarifas de cobrança", _num(resumo.tarifas), MOEDA),
+            ("Receita líquida", _num(resumo.receita_liquida), MOEDA),
+            ("Ticket médio (valor pago)", _num(resumo.ticket_medio), MOEDA),
+        ]
+        primeira_ind = linha
+        for rotulo, valor, fmt in indicadores:
+            c_rot = ws.cell(row=linha, column=1, value=rotulo)
+            c_rot.font = Font(name=FONTE)
+            c_rot.border = _BORDA_FINA
+            c_val = ws.cell(row=linha, column=2, value=valor)
+            c_val.font = Font(name=FONTE)
+            c_val.border = _BORDA_FINA
+            c_val.number_format = fmt
+            c_val.alignment = Alignment(horizontal="right")
+            linha += 1
+
+        rl = primeira_ind + 8  # linha da receita líquida
+        for col in (1, 2):
+            ws.cell(row=rl, column=col).font = Font(name=FONTE, bold=True)
+            ws.cell(row=rl, column=col).fill = _TOTAL_FILL
+
+    @staticmethod
+    def _sumarizada_agregada(
+        wb: Workbook,
+        titulo: str,
+        rotulo_coluna: str,
+        largura_coluna: int,
+        grupos: "List[ResumoGrupo]",
+    ) -> None:
+        ws = wb.create_sheet(titulo)
+        cabecalhos = [
+            (rotulo_coluna, largura_coluna),
+            ("Qtde.", 10),
+            ("Valor Pago", 16),
+            ("Tarifas", 14),
+            ("Receita Líquida", 16),
+        ]
+        for idx, (nome, largura) in enumerate(cabecalhos, start=1):
+            cel = ws.cell(row=1, column=idx, value=nome)
+            cel.font = _BRANCO
+            cel.fill = _HEADER_FILL
+            cel.alignment = Alignment(horizontal="center")
+            ws.column_dimensions[get_column_letter(idx)].width = largura
+
+        linha = 2
+        for g in grupos:
+            ws.cell(row=linha, column=1, value=g.chave).font = Font(name=FONTE)
+            ws.cell(row=linha, column=2, value=g.quantidade)
+            ws.cell(row=linha, column=3, value=_num(g.valor_pago))
+            ws.cell(row=linha, column=4, value=_num(g.tarifa))
+            # Receita líquida como fórmula (recalcula ao editar valores/tarifas).
+            ws.cell(row=linha, column=5, value=f"=C{linha}-D{linha}")
+            for col in range(2, 6):
+                ws.cell(row=linha, column=col).font = Font(name=FONTE)
+                if col >= 3:
+                    ws.cell(row=linha, column=col).number_format = MOEDA
+            linha += 1
+
+        if grupos:
+            ws.cell(row=linha, column=1, value="TOTAL").font = Font(
+                name=FONTE, bold=True
+            )
+            for col, letra in ((2, "B"), (3, "C"), (4, "D"), (5, "E")):
+                cel = ws.cell(
+                    row=linha, column=col, value=f"=SUM({letra}2:{letra}{linha - 1})"
+                )
                 cel.font = Font(name=FONTE, bold=True)
                 cel.fill = _TOTAL_FILL
                 if col >= 3:

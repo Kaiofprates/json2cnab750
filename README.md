@@ -7,6 +7,8 @@ com exatamente **750 bytes**.
 
 ## Funcionalidades
 
+- **Site web** para enviar o arquivo de retorno e ver a análise no navegador,
+  com filtros e download da planilha (servido pela própria API em `/`)
 - Conversão de JSON para CNAB750 remessa (`/json-to-cnab750`)
 - Conversão de CNAB750 remessa para JSON (`/cnab750-to-json`)
 - Leitura de arquivo de RETORNO CNAB750, com cada registro convertido em JSON (`/retorno-to-json`)
@@ -42,7 +44,32 @@ Para iniciar o servidor de desenvolvimento:
 uvicorn app.main:app --reload
 ```
 
-A documentação da API estará disponível em `http://localhost:8000/docs`
+- Site web: `http://localhost:8000/`
+- Documentação da API (Swagger): `http://localhost:8000/docs`
+
+### Interface Web
+
+O endereço raiz (`/`) serve uma aplicação de página única (HTML/CSS/JS, sem
+build) que consome os próprios endpoints da API. O fluxo é:
+
+1. Envie um arquivo de **retorno** CNAB750 (arraste ou selecione).
+2. A página chama `/retorno-to-json` e renderiza no navegador:
+   - **Resumo da receita** — os mesmos indicadores da planilha (valor original,
+     juros, multa, descontos, abatimentos, receita bruta, tarifas, receita
+     líquida, ticket médio), recalculados conforme os filtros aplicados;
+   - **Receita por dia** (com mini-gráfico de barras) e **por chave Pix**;
+   - **Tabela de recebimentos** com filtros por data, valor e busca textual
+     (chave/pagador/TxID) e ordenação por coluna.
+3. O botão **Baixar Excel** reenvia o arquivo para `/retorno-to-excel` e baixa a
+   planilha `.xlsx`.
+
+Para **arquivos grandes** (acima de 15 MB), a página não carrega o detalhe linha
+a linha no navegador: usa `/retorno-resumo` para exibir a análise consolidada
+(processada em *streaming*) e mantém o download da planilha disponível. Assim a
+interface funciona mesmo com arquivos de centenas de MB.
+
+Os arquivos do frontend ficam em [`frontend/`](frontend/) e são servidos pela
+FastAPI via `StaticFiles`.
 
 ### Endpoints
 
@@ -78,12 +105,41 @@ A resposta tem a forma `{ "header": {...}, "detalhes": [...], "trailer": {...} }
 em que cada item de `detalhes` traz o campo `tipo_registro` identificando o seu
 tipo. Aceita registros separados por quebra de linha ou em blocos fixos de 750.
 
+O arquivo é lido em **streaming** (blocos de 1 MiB), sem carregar o conteúdo
+inteiro na memória. A resposta, porém, contém **todos** os registros — para
+arquivos muito grandes prefira `/retorno-resumo` (saída de tamanho limitado).
+
+#### POST /api/v1/retorno-resumo
+
+Recebe um arquivo de **retorno** CNAB750 e devolve a **análise de receita
+consolidada**, calculada em um único passe, em *streaming*, com **memória
+constante** e saída de tamanho limitado (independe da quantidade de registros).
+É a rota recomendada para renderizar a análise no site quando o arquivo é
+grande. A resposta tem a forma:
+
+```json
+{
+  "ispb_participante": "...", "nome_recebedor": "...", "data_geracao": "...",
+  "quantidade": 1234,
+  "valor_original": "...", "valor_juros": "...", "valor_multa": "...",
+  "valor_desconto": "...", "valor_abatimento": "...",
+  "receita_bruta": "...", "tarifas": "...", "receita_liquida": "...",
+  "ticket_medio": "...",
+  "por_dia":   [{ "chave": "2024-04-20", "quantidade": 2, "valor_pago": "...", "tarifa": "...", "receita_liquida": "..." }],
+  "por_chave": [{ "chave": "loja@pix.com", "quantidade": 5, "valor_pago": "...", "tarifa": "...", "receita_liquida": "..." }]
+}
+```
+
+Referência de desempenho: um arquivo de **750 MB (~1 milhão de recebimentos)** é
+processado em ~40 s usando ~40 MB de RAM.
+
 #### POST /api/v1/retorno-to-excel
 
 Recebe um arquivo de **retorno** CNAB750 (`multipart/form-data`, campo
 `arquivo`) e devolve uma planilha **Excel (`.xlsx`)** com a análise dos
-recebimentos (registros tipo `5`) e sumarização de receita. A planilha tem
-quatro abas:
+recebimentos (registros tipo `5`) e sumarização de receita.
+
+Para arquivos até **~40 MB**, gera a planilha **detalhada**, com quatro abas:
 
 | Aba | Conteúdo |
 |-----|----------|
@@ -92,8 +148,12 @@ quatro abas:
 | `Receita por Dia` | Sumarização por data de movimento |
 | `Receita por Chave` | Sumarização por chave Pix do recebedor |
 
-Todos os totais são gravados como **fórmulas** (`SUM`, `SUMIFS`, `COUNTIFS`),
-de modo que a planilha recalcula automaticamente ao ser editada.
+Nesse caso os totais são gravados como **fórmulas** (`SUM`, `SUMIFS`,
+`COUNTIFS`), de modo que a planilha recalcula automaticamente ao ser editada.
+
+Acima de ~40 MB, gera a planilha **agregada** (calculada em *streaming*): só as
+abas `Resumo`, `Receita por Dia` e `Receita por Chave`, sem o detalhe linha a
+linha — que seria inviável, pois o Excel tem limite de ~1.048.576 linhas por aba.
 
 #### POST /api/v1/criar-arquivo-padrao
 
@@ -119,6 +179,21 @@ Observações:
 - O arquivo será salvo em `output/nome_arquivo.rem`
 - A resposta incluirá o caminho completo do arquivo gerado
 
+## Deploy em produção
+
+O projeto inclui scripts para publicar a API + site num **VPS Hostinger**
+(Ubuntu/Debian) com Gunicorn + Nginx + systemd. Em resumo, no VPS:
+
+```bash
+git clone https://github.com/kaiofprates/json2cnab750.git
+cd json2cnab750/deploy
+SERVER_NAME=meudominio.com.br ./deploy.sh
+```
+
+O script é idempotente (serve tanto para o primeiro deploy quanto para
+atualizações) e pode emitir HTTPS via Let's Encrypt. Detalhes, variáveis e
+operação em [`deploy/README.md`](deploy/README.md).
+
 ## Estrutura do Projeto
 
 ```
@@ -129,7 +204,17 @@ Observações:
 │   ├── models/         # Modelos de dados
 │   ├── schemas/        # Schemas Pydantic
 │   └── services/       # Lógica de negócios
+├── frontend/          # Site web (SPA estática servida pela API)
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── deploy/            # Scripts e configs de deploy (VPS Hostinger)
+│   ├── deploy.sh
+│   ├── json2cnab750.service
+│   ├── nginx.conf
+│   └── README.md
 ├── output/            # Pasta onde os arquivos são salvos
 ├── requirements.txt   # Dependências
+├── requirements-prod.txt  # Dependências extras de produção (gunicorn)
 └── README.md         # Este arquivo
 ``` 
