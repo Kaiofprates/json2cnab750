@@ -108,6 +108,7 @@ body {
 /* ---------- Alert / loading ---------- */
 .alert { margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 14px; }
 .alert--erro { background: #fdecea; color: var(--vermelho); border: 1px solid #f5c6c2; }
+.alert--info { background: #eaf3fb; color: var(--azul-escuro); border: 1px solid #bcd8f0; margin-bottom: 18px; }
 
 .loading { display: flex; align-items: center; gap: 12px; margin-top: 16px; color: var(--cinza-texto); }
 .spinner {

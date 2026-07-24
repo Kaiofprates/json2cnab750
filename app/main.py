@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .core.config import settings
 from .api.endpoints import router as api_router
+from .core.config import settings
 
 app = FastAPI(
     title="JSON2CNAB750 API",

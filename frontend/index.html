@@ -68,6 +68,9 @@
         <button id="btn-excel" class="btn btn--excel">⬇️ Baixar Excel (.xlsx)</button>
       </div>
 
+      <!-- Banner para arquivos grandes (modo agregado) -->
+      <div id="banner-grande" class="alert alert--info" hidden></div>
+
       <!-- KPIs -->
       <h2 class="secao-titulo">Resumo da receita</h2>
       <p class="secao-legenda" id="resumo-legenda">Indicadores recalculados conforme os filtros aplicados.</p>
@@ -97,7 +100,7 @@
       </div>
 
       <!-- Filtros + tabela de recebimentos -->
-      <div class="card">
+      <div class="card" id="card-detalhe">
         <div class="card__header">
           <h3 class="card__title">Recebimentos <span id="contador" class="badge">0</span></h3>
         </div>

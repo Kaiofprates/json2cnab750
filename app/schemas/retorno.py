@@ -160,3 +160,39 @@ class ArquivoRetorno(BaseModel):
     header: HeaderRetorno
     detalhes: List[RegistroRetorno] = Field(default_factory=list)
     trailer: TrailerRetorno
+
+
+# ---------------------------------------------------------------------- #
+# Resumo agregado (analise de receita) — calculado em streaming, com       #
+# tamanho de saida limitado (independe da quantidade de registros).        #
+# ---------------------------------------------------------------------- #
+class ResumoGrupo(BaseModel):
+    """Sumarização de recebimentos por uma chave (data ou chave Pix)."""
+
+    chave: str
+    quantidade: int = 0
+    valor_pago: Decimal = Decimal("0")
+    tarifa: Decimal = Decimal("0")
+    receita_liquida: Decimal = Decimal("0")
+
+
+class ResumoRetorno(BaseModel):
+    """Indicadores consolidados de um arquivo de retorno (registros tipo 5)."""
+
+    ispb_participante: Optional[str] = None
+    nome_recebedor: Optional[str] = None
+    data_geracao: Optional[date] = None
+
+    quantidade: int = 0
+    valor_original: Decimal = Decimal("0")
+    valor_juros: Decimal = Decimal("0")
+    valor_multa: Decimal = Decimal("0")
+    valor_desconto: Decimal = Decimal("0")
+    valor_abatimento: Decimal = Decimal("0")
+    receita_bruta: Decimal = Decimal("0")  # soma dos valores pagos
+    tarifas: Decimal = Decimal("0")
+    receita_liquida: Decimal = Decimal("0")
+    ticket_medio: Decimal = Decimal("0")
+
+    por_dia: List[ResumoGrupo] = Field(default_factory=list)
+    por_chave: List[ResumoGrupo] = Field(default_factory=list)

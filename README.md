@@ -63,6 +63,11 @@ build) que consome os próprios endpoints da API. O fluxo é:
 3. O botão **Baixar Excel** reenvia o arquivo para `/retorno-to-excel` e baixa a
    planilha `.xlsx`.
 
+Para **arquivos grandes** (acima de 15 MB), a página não carrega o detalhe linha
+a linha no navegador: usa `/retorno-resumo` para exibir a análise consolidada
+(processada em *streaming*) e mantém o download da planilha disponível. Assim a
+interface funciona mesmo com arquivos de centenas de MB.
+
 Os arquivos do frontend ficam em [`frontend/`](frontend/) e são servidos pela
 FastAPI via `StaticFiles`.
 
@@ -100,12 +105,41 @@ A resposta tem a forma `{ "header": {...}, "detalhes": [...], "trailer": {...} }
 em que cada item de `detalhes` traz o campo `tipo_registro` identificando o seu
 tipo. Aceita registros separados por quebra de linha ou em blocos fixos de 750.
 
+O arquivo é lido em **streaming** (blocos de 1 MiB), sem carregar o conteúdo
+inteiro na memória. A resposta, porém, contém **todos** os registros — para
+arquivos muito grandes prefira `/retorno-resumo` (saída de tamanho limitado).
+
+#### POST /api/v1/retorno-resumo
+
+Recebe um arquivo de **retorno** CNAB750 e devolve a **análise de receita
+consolidada**, calculada em um único passe, em *streaming*, com **memória
+constante** e saída de tamanho limitado (independe da quantidade de registros).
+É a rota recomendada para renderizar a análise no site quando o arquivo é
+grande. A resposta tem a forma:
+
+```json
+{
+  "ispb_participante": "...", "nome_recebedor": "...", "data_geracao": "...",
+  "quantidade": 1234,
+  "valor_original": "...", "valor_juros": "...", "valor_multa": "...",
+  "valor_desconto": "...", "valor_abatimento": "...",
+  "receita_bruta": "...", "tarifas": "...", "receita_liquida": "...",
+  "ticket_medio": "...",
+  "por_dia":   [{ "chave": "2024-04-20", "quantidade": 2, "valor_pago": "...", "tarifa": "...", "receita_liquida": "..." }],
+  "por_chave": [{ "chave": "loja@pix.com", "quantidade": 5, "valor_pago": "...", "tarifa": "...", "receita_liquida": "..." }]
+}
+```
+
+Referência de desempenho: um arquivo de **750 MB (~1 milhão de recebimentos)** é
+processado em ~40 s usando ~40 MB de RAM.
+
 #### POST /api/v1/retorno-to-excel
 
 Recebe um arquivo de **retorno** CNAB750 (`multipart/form-data`, campo
 `arquivo`) e devolve uma planilha **Excel (`.xlsx`)** com a análise dos
-recebimentos (registros tipo `5`) e sumarização de receita. A planilha tem
-quatro abas:
+recebimentos (registros tipo `5`) e sumarização de receita.
+
+Para arquivos até **~40 MB**, gera a planilha **detalhada**, com quatro abas:
 
 | Aba | Conteúdo |
 |-----|----------|
@@ -114,8 +148,12 @@ quatro abas:
 | `Receita por Dia` | Sumarização por data de movimento |
 | `Receita por Chave` | Sumarização por chave Pix do recebedor |
 
-Todos os totais são gravados como **fórmulas** (`SUM`, `SUMIFS`, `COUNTIFS`),
-de modo que a planilha recalcula automaticamente ao ser editada.
+Nesse caso os totais são gravados como **fórmulas** (`SUM`, `SUMIFS`,
+`COUNTIFS`), de modo que a planilha recalcula automaticamente ao ser editada.
+
+Acima de ~40 MB, gera a planilha **agregada** (calculada em *streaming*): só as
+abas `Resumo`, `Receita por Dia` e `Receita por Chave`, sem o detalhe linha a
+linha — que seria inviável, pois o Excel tem limite de ~1.048.576 linhas por aba.
 
 #### POST /api/v1/criar-arquivo-padrao
 

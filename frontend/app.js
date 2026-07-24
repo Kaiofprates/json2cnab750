@@ -6,11 +6,17 @@
 
   var API = "/api/v1";
 
+  // Acima deste tamanho, o detalhe (uma linha por recebimento) não é carregado
+  // no navegador: usa-se a análise agregada de /retorno-resumo, que escala para
+  // arquivos enormes. O Excel completo continua disponível para download.
+  var LIMITE_DETALHE = 15 * 1024 * 1024;
+
   // Estado da aplicação
   var estado = {
     arquivo: null, // File original (para baixar o Excel sem reprocessar no cliente)
     dados: null, // resposta de /retorno-to-json
     recebimentos: [], // detalhes tipo "5" normalizados
+    modo: "detalhe", // "detalhe" (client-side) | "resumo" (agregado do servidor)
     ordenacao: { campo: "data_movimento", asc: true },
   };
 
@@ -97,6 +103,18 @@
     el.hidden = false;
   }
 
+  async function postArquivo(rota) {
+    var fd = new FormData();
+    fd.append("arquivo", estado.arquivo);
+    var resp = await fetch(API + rota, { method: "POST", body: fd });
+    if (!resp.ok) {
+      var detalhe = "Falha ao processar o arquivo.";
+      try { var j = await resp.json(); if (j.detail) detalhe = j.detail; } catch (_) {}
+      throw new Error(detalhe);
+    }
+    return resp.json();
+  }
+
   async function analisar() {
     if (!estado.arquivo) return;
     $("#erro").hidden = true;
@@ -104,19 +122,19 @@
     btnAnalisar.disabled = true;
 
     try {
-      var fd = new FormData();
-      fd.append("arquivo", estado.arquivo);
-      var resp = await fetch(API + "/retorno-to-json", { method: "POST", body: fd });
-      if (!resp.ok) {
-        var detalhe = "Falha ao processar o arquivo.";
-        try { var j = await resp.json(); if (j.detail) detalhe = j.detail; } catch (_) {}
-        throw new Error(detalhe);
+      if (estado.arquivo.size > LIMITE_DETALHE) {
+        // Arquivo grande: análise agregada em streaming (memória constante).
+        estado.modo = "resumo";
+        estado.recebimentos = [];
+        renderizarModoResumo(await postArquivo("/retorno-resumo"));
+      } else {
+        estado.modo = "detalhe";
+        estado.dados = await postArquivo("/retorno-to-json");
+        estado.recebimentos = (estado.dados.detalhes || [])
+          .filter(function (d) { return d.tipo_registro === "5"; })
+          .map(normalizarRecebimento);
+        renderizar();
       }
-      estado.dados = await resp.json();
-      estado.recebimentos = (estado.dados.detalhes || [])
-        .filter(function (d) { return d.tipo_registro === "5"; })
-        .map(normalizarRecebimento);
-      renderizar();
     } catch (err) {
       mostrarErro(err.message || "Erro inesperado.");
     } finally {
@@ -199,14 +217,77 @@
   // ---------------------------------------------------------------- //
   // Renderização
   // ---------------------------------------------------------------- //
-  function renderizar() {
-    var h = estado.dados.header || {};
-    $("#meta-recebedor").textContent = texto(h.nome_recebedor);
-    $("#meta-ispb").textContent = texto(h.ispb_participante);
-    $("#meta-data").textContent = dataBR(h.data_geracao);
+  function preencherMeta(m) {
+    $("#meta-recebedor").textContent = texto(m.nome_recebedor);
+    $("#meta-ispb").textContent = texto(m.ispb_participante);
+    $("#meta-data").textContent = dataBR(m.data_geracao);
     $("#meta-arquivo").textContent = estado.arquivo ? estado.arquivo.name : "—";
     $("#secao-resultado").hidden = false;
+  }
+
+  // Modo detalhe (arquivo pequeno): detalhe completo com filtros no navegador.
+  function renderizar() {
+    preencherMeta(estado.dados.header || {});
+    $("#banner-grande").hidden = true;
+    $("#card-detalhe").hidden = false;
+    $("#resumo-legenda").textContent =
+      "Indicadores recalculados conforme os filtros aplicados.";
     renderizarResultado();
+    $("#secao-resultado").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Modo resumo (arquivo grande): apenas a análise agregada vinda do servidor.
+  function renderizarModoResumo(resumo) {
+    preencherMeta(resumo);
+
+    var mb = (estado.arquivo.size / (1024 * 1024)).toFixed(0);
+    var banner = $("#banner-grande");
+    banner.innerHTML =
+      "<strong>Arquivo grande (" + mb + " MB).</strong> Exibindo a análise " +
+      "consolidada de todo o arquivo (processada em streaming). A lista linha a " +
+      "linha foi omitida para não sobrecarregar o navegador — use o botão " +
+      "<em>Baixar Excel</em> para gerar a planilha de análise.";
+    banner.hidden = false;
+    $("#card-detalhe").hidden = true;
+    $("#resumo-legenda").textContent =
+      "Indicadores consolidados de todo o arquivo (" +
+      inteiro(num(resumo.quantidade)) + " recebimentos).";
+
+    montarKpis({
+      qtde: num(resumo.quantidade),
+      original: num(resumo.valor_original),
+      juros: num(resumo.valor_juros),
+      multa: num(resumo.valor_multa),
+      desconto: num(resumo.valor_desconto),
+      abatimento: num(resumo.valor_abatimento),
+      pago: num(resumo.receita_bruta),
+      tarifa: num(resumo.tarifas),
+      liquida: num(resumo.receita_liquida),
+      ticket: num(resumo.ticket_medio),
+    });
+
+    var dia = (resumo.por_dia || []).map(function (g) {
+      return {
+        chave: dataBR(g.chave),
+        qtde: num(g.quantidade),
+        pago: num(g.valor_pago),
+        liquida: num(g.receita_liquida),
+        rotulo: dataBR(g.chave),
+      };
+    });
+    $("#tab-dia").querySelector("tbody").innerHTML = linhasAgrupadas(dia);
+    renderizarChart(dia);
+
+    var chave = (resumo.por_chave || []).map(function (g) {
+      return {
+        chave: g.chave,
+        qtde: num(g.quantidade),
+        pago: num(g.valor_pago),
+        liquida: num(g.receita_liquida),
+      };
+    });
+    $("#tab-chave").querySelector("tbody").innerHTML = linhasAgrupadas(chave);
+
     $("#secao-resultado").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -237,7 +318,12 @@
   }
 
   function renderizarKpis(lista) {
-    var a = agregar(lista);
+    montarKpis(agregar(lista));
+  }
+
+  // Recebe um objeto agregado {qtde, original, juros, multa, desconto,
+  // abatimento, pago, tarifa, liquida, ticket} e desenha os cartões.
+  function montarKpis(a) {
     var cards = [
       { label: "Qtde. recebimentos", valor: inteiro(a.qtde) },
       { label: "Valor original", valor: moeda(a.original) },
