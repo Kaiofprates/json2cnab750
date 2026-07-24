@@ -7,6 +7,8 @@ com exatamente **750 bytes**.
 
 ## Funcionalidades
 
+- **Site web** para enviar o arquivo de retorno e ver a análise no navegador,
+  com filtros e download da planilha (servido pela própria API em `/`)
 - Conversão de JSON para CNAB750 remessa (`/json-to-cnab750`)
 - Conversão de CNAB750 remessa para JSON (`/cnab750-to-json`)
 - Leitura de arquivo de RETORNO CNAB750, com cada registro convertido em JSON (`/retorno-to-json`)
@@ -42,7 +44,27 @@ Para iniciar o servidor de desenvolvimento:
 uvicorn app.main:app --reload
 ```
 
-A documentação da API estará disponível em `http://localhost:8000/docs`
+- Site web: `http://localhost:8000/`
+- Documentação da API (Swagger): `http://localhost:8000/docs`
+
+### Interface Web
+
+O endereço raiz (`/`) serve uma aplicação de página única (HTML/CSS/JS, sem
+build) que consome os próprios endpoints da API. O fluxo é:
+
+1. Envie um arquivo de **retorno** CNAB750 (arraste ou selecione).
+2. A página chama `/retorno-to-json` e renderiza no navegador:
+   - **Resumo da receita** — os mesmos indicadores da planilha (valor original,
+     juros, multa, descontos, abatimentos, receita bruta, tarifas, receita
+     líquida, ticket médio), recalculados conforme os filtros aplicados;
+   - **Receita por dia** (com mini-gráfico de barras) e **por chave Pix**;
+   - **Tabela de recebimentos** com filtros por data, valor e busca textual
+     (chave/pagador/TxID) e ordenação por coluna.
+3. O botão **Baixar Excel** reenvia o arquivo para `/retorno-to-excel` e baixa a
+   planilha `.xlsx`.
+
+Os arquivos do frontend ficam em [`frontend/`](frontend/) e são servidos pela
+FastAPI via `StaticFiles`.
 
 ### Endpoints
 
@@ -119,6 +141,21 @@ Observações:
 - O arquivo será salvo em `output/nome_arquivo.rem`
 - A resposta incluirá o caminho completo do arquivo gerado
 
+## Deploy em produção
+
+O projeto inclui scripts para publicar a API + site num **VPS Hostinger**
+(Ubuntu/Debian) com Gunicorn + Nginx + systemd. Em resumo, no VPS:
+
+```bash
+git clone https://github.com/kaiofprates/json2cnab750.git
+cd json2cnab750/deploy
+SERVER_NAME=meudominio.com.br ./deploy.sh
+```
+
+O script é idempotente (serve tanto para o primeiro deploy quanto para
+atualizações) e pode emitir HTTPS via Let's Encrypt. Detalhes, variáveis e
+operação em [`deploy/README.md`](deploy/README.md).
+
 ## Estrutura do Projeto
 
 ```
@@ -129,7 +166,17 @@ Observações:
 │   ├── models/         # Modelos de dados
 │   ├── schemas/        # Schemas Pydantic
 │   └── services/       # Lógica de negócios
+├── frontend/          # Site web (SPA estática servida pela API)
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── deploy/            # Scripts e configs de deploy (VPS Hostinger)
+│   ├── deploy.sh
+│   ├── json2cnab750.service
+│   ├── nginx.conf
+│   └── README.md
 ├── output/            # Pasta onde os arquivos são salvos
 ├── requirements.txt   # Dependências
+├── requirements-prod.txt  # Dependências extras de produção (gunicorn)
 └── README.md         # Este arquivo
 ``` 

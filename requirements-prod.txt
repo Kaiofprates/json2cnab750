@@ -1,0 +1,3 @@
+# Dependências adicionais para execução em produção.
+# Instale junto com as de desenvolvimento:  pip install -r requirements.txt -r requirements-prod.txt
+gunicorn==21.2.0

@@ -1,0 +1,38 @@
+# Unidade systemd para a API JSON2CNAB750 (Gunicorn + workers Uvicorn).
+# Instalada automaticamente por deploy/deploy.sh em /etc/systemd/system/.
+#
+# Uso manual:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now json2cnab750
+#   sudo systemctl status json2cnab750
+#   journalctl -u json2cnab750 -f
+
+[Unit]
+Description=JSON2CNAB750 API (FastAPI + frontend)
+After=network.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+Group=__APP_USER__
+WorkingDirectory=__APP_DIR__
+Environment="PATH=__APP_DIR__/venv/bin"
+EnvironmentFile=-__APP_DIR__/.env
+ExecStart=__APP_DIR__/venv/bin/gunicorn app.main:app \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 600 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile -
+Restart=always
+RestartSec=5
+
+# Endurecimento básico
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

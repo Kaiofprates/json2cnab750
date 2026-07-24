@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JSON2CNAB750 — Análise de Retorno Pix Automático</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="brand">
+        <span class="brand__logo">📊</span>
+        <div>
+          <h1 class="brand__title">JSON2CNAB750</h1>
+          <p class="brand__subtitle">Análise de retorno CNAB750 — Pix Automático Itaú</p>
+        </div>
+      </div>
+      <nav class="topbar__links">
+        <a href="/docs" target="_blank" rel="noopener">API Docs</a>
+        <a href="https://github.com/kaiofprates/json2cnab750" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- ETAPA 1: UPLOAD -->
+    <section id="secao-upload" class="card upload">
+      <h2 class="card__title">Enviar arquivo de retorno</h2>
+      <p class="card__hint">
+        Selecione um arquivo de retorno CNAB750 (750 bytes por registro). A análise
+        é renderizada aqui mesmo e você pode baixar a planilha Excel a qualquer momento.
+      </p>
+
+      <label id="dropzone" class="dropzone" for="input-arquivo">
+        <input type="file" id="input-arquivo" accept=".rem,.ret,.txt" hidden />
+        <div class="dropzone__icon">📥</div>
+        <div class="dropzone__text">
+          <strong id="dropzone-nome">Clique para selecionar ou arraste o arquivo aqui</strong>
+          <span>Formatos: .rem, .ret, .txt</span>
+        </div>
+      </label>
+
+      <div class="upload__actions">
+        <button id="btn-analisar" class="btn btn--primary" disabled>Analisar arquivo</button>
+        <button id="btn-limpar" class="btn btn--ghost" hidden>Limpar</button>
+      </div>
+
+      <div id="erro" class="alert alert--erro" hidden></div>
+      <div id="loading" class="loading" hidden>
+        <div class="spinner"></div>
+        <span>Processando arquivo…</span>
+      </div>
+    </section>
+
+    <!-- ETAPA 2: RESULTADO -->
+    <section id="secao-resultado" hidden>
+      <!-- Cabeçalho do arquivo -->
+      <div class="card meta">
+        <div class="meta__grid">
+          <div><span class="meta__label">Recebedor</span><span id="meta-recebedor" class="meta__value">—</span></div>
+          <div><span class="meta__label">ISPB</span><span id="meta-ispb" class="meta__value">—</span></div>
+          <div><span class="meta__label">Data de geração</span><span id="meta-data" class="meta__value">—</span></div>
+          <div><span class="meta__label">Arquivo</span><span id="meta-arquivo" class="meta__value">—</span></div>
+        </div>
+        <button id="btn-excel" class="btn btn--excel">⬇️ Baixar Excel (.xlsx)</button>
+      </div>
+
+      <!-- KPIs -->
+      <h2 class="secao-titulo">Resumo da receita</h2>
+      <p class="secao-legenda" id="resumo-legenda">Indicadores recalculados conforme os filtros aplicados.</p>
+      <div id="kpis" class="kpis"></div>
+
+      <!-- Agregações -->
+      <div class="grid-2">
+        <div class="card">
+          <h3 class="card__title">Receita por dia</h3>
+          <div id="chart-dia" class="chart"></div>
+          <div class="tabela-wrap">
+            <table class="tabela tabela--compacta" id="tab-dia">
+              <thead><tr><th>Data</th><th class="num">Qtde</th><th class="num">Valor pago</th><th class="num">Receita líquida</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card__title">Receita por chave Pix</h3>
+          <div class="tabela-wrap">
+            <table class="tabela tabela--compacta" id="tab-chave">
+              <thead><tr><th>Chave</th><th class="num">Qtde</th><th class="num">Valor pago</th><th class="num">Receita líquida</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtros + tabela de recebimentos -->
+      <div class="card">
+        <div class="card__header">
+          <h3 class="card__title">Recebimentos <span id="contador" class="badge">0</span></h3>
+        </div>
+
+        <div class="filtros">
+          <div class="filtro">
+            <label for="f-data-inicio">Data inicial</label>
+            <input type="date" id="f-data-inicio" />
+          </div>
+          <div class="filtro">
+            <label for="f-data-fim">Data final</label>
+            <input type="date" id="f-data-fim" />
+          </div>
+          <div class="filtro filtro--cresce">
+            <label for="f-busca">Chave / pagador / TxID</label>
+            <input type="text" id="f-busca" placeholder="Buscar…" />
+          </div>
+          <div class="filtro">
+            <label for="f-valor-min">Valor mín.</label>
+            <input type="number" id="f-valor-min" step="0.01" placeholder="0,00" />
+          </div>
+          <div class="filtro">
+            <label for="f-valor-max">Valor máx.</label>
+            <input type="number" id="f-valor-max" step="0.01" placeholder="0,00" />
+          </div>
+          <button id="btn-limpar-filtros" class="btn btn--ghost btn--sm">Limpar filtros</button>
+        </div>
+
+        <div class="tabela-wrap tabela-wrap--scroll">
+          <table class="tabela" id="tab-recebimentos">
+            <thead>
+              <tr>
+                <th data-sort="identificador">TxID</th>
+                <th data-sort="data_movimento">Data</th>
+                <th data-sort="chave_pix">Chave Pix</th>
+                <th data-sort="nome_pagador_final">Pagador</th>
+                <th class="num" data-sort="valor_original">Valor orig.</th>
+                <th class="num" data-sort="valor_juros">Juros</th>
+                <th class="num" data-sort="valor_multa">Multa</th>
+                <th class="num" data-sort="valor_desconto">Desconto</th>
+                <th class="num" data-sort="valor_pago">Valor pago</th>
+                <th class="num" data-sort="tarifa_cobranca">Tarifa</th>
+                <th class="num" data-sort="receita_liquida">Rec. líquida</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div id="tabela-vazia" class="vazio" hidden>Nenhum recebimento corresponde aos filtros.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="rodape">
+    JSON2CNAB750 · conversão e análise de arquivos CNAB750 (Pix Automático)
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
